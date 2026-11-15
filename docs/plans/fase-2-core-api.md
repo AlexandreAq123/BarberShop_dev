@@ -23,7 +23,7 @@ Qualquer outra lib: justificar no resumo da tarefa.
 
 ---
 
-## [ ] 2.0 — Fundação de testes de integração e padrões HTTP
+## [x] 2.0 — Fundação de testes de integração e padrões HTTP
 
 **Pré-requisito:** migration `init` gerada e commitada (`pnpm db:migrate --name init`).
 
