@@ -17,6 +17,8 @@ DB_MIGRATOR_PASSWORD=${migratorPass}
 # ---- apps/api/.env ----
 DATABASE_URL=mysql://barber_app:${appPass}@127.0.0.1:3306/barber
 MIGRATION_DATABASE_URL=mysql://barber_migrator:${migratorPass}@127.0.0.1:3306/barber
+TEST_DATABASE_URL=mysql://barber_app:${appPass}@127.0.0.1:3306/barber_test
+TEST_MIGRATION_DATABASE_URL=mysql://barber_migrator:${migratorPass}@127.0.0.1:3306/barber_test
 JWT_ACCESS_SECRET=${url(48)}
 PHONE_ENC_KEY=${b64(32)}
 PHONE_HASH_PEPPER=${url(32)}

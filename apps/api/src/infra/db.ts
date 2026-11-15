@@ -1,5 +1,5 @@
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
-import { PrismaClient } from "../generated/prisma/client.ts";
+import { PrismaClient, type Prisma } from "../generated/prisma/client.ts";
 import type { Env } from "./env.js";
 
 /**
@@ -32,6 +32,12 @@ export function createDb(env: Pick<Env, "DATABASE_URL" | "DB_CONNECTION_LIMIT">)
 }
 
 export type Db = ReturnType<typeof createDb>;
+
+/**
+ * Cliente dentro de `db.$transaction(async (tx) => …)`. Repositórios recebem
+ * `Db | DbTx` para que o mesmo método rode dentro ou fora de uma transação.
+ */
+export type DbTx = Prisma.TransactionClient;
 
 /** Contrato mínimo usado pelo health check — facilita testar sem banco. */
 export interface DbHealth {

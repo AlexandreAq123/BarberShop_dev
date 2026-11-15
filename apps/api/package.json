@@ -10,9 +10,11 @@
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
+    "test:int": "vitest run -c vitest.int.config.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
+    "db:deploy:test": "node scripts/db-test-deploy.mjs",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio"
   },
@@ -25,6 +27,7 @@
     "@prisma/adapter-mariadb": "7.10.1",
     "@prisma/client": "7.10.1",
     "fastify": "5.12.7",
+    "fastify-type-provider-zod": "6.1.0",
     "pino": "10.4.0",
     "zod": "4.6.7"
   },

@@ -11,3 +11,14 @@ onlyBuiltDependencies:
   - prisma
   - "@prisma/engines"
   - esbuild
+
+# fastify-type-provider-zod só usa @fastify/swagger e openapi-types em `import type`
+# (geração de OpenAPI, que não usamos). Marcados como opcionais para o pnpm não
+# instalar o Swagger automaticamente (menos superfície de ataque).
+packageExtensions:
+  fastify-type-provider-zod@6:
+    peerDependenciesMeta:
+      "@fastify/swagger":
+        optional: true
+      openapi-types:
+        optional: true

@@ -4,5 +4,12 @@
     // O Prisma Client gerado importa arquivos com extensão .ts
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "test", "prisma", "prisma.config.ts", "vitest.config.ts"]
+  "include": [
+    "src",
+    "test",
+    "prisma",
+    "prisma.config.ts",
+    "vitest.config.ts",
+    "vitest.int.config.ts"
+  ]
 }
