@@ -1,0 +1,19 @@
+node_modules/
+dist/
+coverage/
+*.log
+
+# Segredos — NUNCA versionar. Só os .env.example vão para o Git.
+.env
+.env.*
+!.env.example
+
+# Prisma Client gerado (recriado por `pnpm db:generate`)
+apps/api/src/generated/
+
+# Preferências locais do Claude Code (o settings.json compartilhado é versionado)
+.claude/settings.local.json
+
+.DS_Store
+.vscode/*
+!.vscode/extensions.json

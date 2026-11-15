@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci_only_root
+          MYSQL_DATABASE: barber
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci_only_root"
+          --health-interval=5s --health-timeout=3s --health-retries=20
+
+    env:
+      # Banco descartável do CI — não é segredo de nenhum ambiente real.
+      MIGRATION_DATABASE_URL: mysql://root:ci_only_root@127.0.0.1:3306/barber
+
+    steps:
+      # Actions fixadas por SHA (tag entre parênteses) contra ataque de supply chain.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile # postinstall gera o Prisma Client
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+      - name: Migrations aplicam do zero e batem com o schema
+        if: hashFiles('apps/api/prisma/migrations/**/migration.sql') != ''
+        working-directory: apps/api
+        run: |
+          pnpm exec prisma migrate deploy
+          pnpm exec prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code

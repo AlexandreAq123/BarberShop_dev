@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Segurança de supply chain: só instala versões publicadas há pelo menos 14 dias
+# (em minutos). Uma versão maliciosa costuma ser removida antes desse prazo.
+minimumReleaseAge: 20160
+
+# pnpm 10 bloqueia scripts de instalação por padrão; liberamos só o necessário.
+onlyBuiltDependencies:
+  - prisma
+  - "@prisma/engines"
+  - esbuild

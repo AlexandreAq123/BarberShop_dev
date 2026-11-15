@@ -1,0 +1,33 @@
+{
+  "name": "barber-saas",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @barber/api dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm -r test",
+    "db:up": "docker compose up -d mysql",
+    "db:down": "docker compose down",
+    "db:generate": "pnpm --filter @barber/api db:generate",
+    "db:migrate": "pnpm --filter @barber/api db:migrate",
+    "db:deploy": "pnpm --filter @barber/api db:deploy",
+    "db:seed": "pnpm --filter @barber/api db:seed",
+    "env:secrets": "node apps/api/scripts/gen-secrets.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.20.5",
+    "eslint": "10.14.0",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1"
+  }
+}

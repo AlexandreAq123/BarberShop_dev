@@ -1,0 +1,389 @@
+// =============================================================================
+//  barber-saas — modelagem v1 (MySQL 8 / MariaDB 10.6+)
+//
+//  Regras que este schema materializa:
+//   • Multi-tenant: toda tabela de negócio carrega shopId.
+//   • Datas sempre em UTC (DATETIME(3)); o fuso da loja fica em shops.timezone.
+//   • Dinheiro em centavos (Int); comissão em basis points (1000 = 10%).
+//   • Telefone do cliente: phoneEnc (AES-256-GCM) + phoneHash (HMAC) — nunca em claro.
+//   • Esquecimento: DELETE em users → appointments.clientId vira NULL (anonimização).
+// =============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum StaffRole {
+  OWNER
+  MANAGER
+  BARBER
+  FINANCE
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  IN_SERVICE
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum Channel {
+  WEB
+  WHATSAPP
+  ADMIN
+}
+
+enum PrivacyAction {
+  CONSENT_GRANTED
+  CONSENT_REVOKED
+  DATA_VIEWED
+  DATA_EXPORTED
+  ERASURE_COMPLETED
+}
+
+enum TokenPurpose {
+  MAGIC_LINK
+  OTP
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+// -----------------------------------------------------------------------------
+//  Tenant
+// -----------------------------------------------------------------------------
+
+model Shop {
+  id                String   @id @default(uuid(7)) @db.Char(36)
+  slug              String   @unique @db.VarChar(60)
+  name              String   @db.VarChar(100)
+  timezone          String   @default("America/Sao_Paulo") @db.VarChar(40)
+  slotStepMin       Int      @default(15) @db.SmallInt
+  bookingWindowDays Int      @default(30) @db.SmallInt
+  cancelNoticeMin   Int      @default(120) @db.SmallInt
+  reminderLeadMin   Int      @default(180) @db.SmallInt
+  policyVersion     String   @db.VarChar(20)
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now()) @db.DateTime(3)
+  updatedAt         DateTime @updatedAt @db.DateTime(3)
+
+  businessHours BusinessHour[]
+  staff         Staff[]
+  services      Service[]
+  blocks        ScheduleBlock[]
+  clients       Client[]
+  appointments  Appointment[]
+  privacyLogs   PrivacyLog[]
+  whatsapp      WhatsAppChannel?
+  inbound       WhatsAppInbound[]
+  sessions      WhatsAppSession[]
+
+  @@map("shops")
+}
+
+/// Permite turnos partidos (ex.: 09:00–12:00 e 14:00–20:00 no mesmo dia).
+model BusinessHour {
+  id       Int    @id @default(autoincrement())
+  shopId   String @db.Char(36)
+  weekday  Int    @db.TinyInt /// 0 = domingo … 6 = sábado
+  openMin  Int    @db.SmallInt /// minutos desde 00:00 no fuso da loja
+  closeMin Int    @db.SmallInt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, weekday, openMin])
+  @@map("business_hours")
+}
+
+// -----------------------------------------------------------------------------
+//  Equipe
+// -----------------------------------------------------------------------------
+
+model Staff {
+  id            String    @id @default(uuid(7)) @db.Char(36)
+  shopId        String    @db.Char(36)
+  name          String    @db.VarChar(80)
+  title         String?   @db.VarChar(60)
+  email         String    @db.VarChar(120)
+  passwordHash  String    @db.VarChar(255) /// argon2id
+  role          StaffRole @default(BARBER)
+  commissionBps Int       @default(0) @db.SmallInt
+  active        Boolean   @default(true)
+  mfaSecretEnc  Bytes?    @db.VarBinary(255)
+  createdAt     DateTime  @default(now()) @db.DateTime(3)
+  updatedAt     DateTime  @updatedAt @db.DateTime(3)
+
+  shop         Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  schedules    StaffSchedule[]
+  services     StaffService[]
+  blocks       ScheduleBlock[]
+  sessions     StaffSession[]
+  appointments Appointment[]
+
+  @@unique([shopId, email])
+  @@map("staff")
+}
+
+model StaffSchedule {
+  id       Int    @id @default(autoincrement())
+  staffId  String @db.Char(36)
+  weekday  Int    @db.TinyInt
+  startMin Int    @db.SmallInt
+  endMin   Int    @db.SmallInt
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, weekday, startMin])
+  @@map("staff_schedules")
+}
+
+/// Almoço, folga, feriado. staffId nulo = bloqueio da loja inteira.
+model ScheduleBlock {
+  id       String   @id @default(uuid(7)) @db.Char(36)
+  shopId   String   @db.Char(36)
+  staffId  String?  @db.Char(36)
+  startsAt DateTime @db.DateTime(3)
+  endsAt   DateTime @db.DateTime(3)
+  reason   String?  @db.VarChar(60)
+
+  shop  Shop   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  staff Staff? @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([staffId, startsAt])
+  @@index([shopId, startsAt])
+  @@map("schedule_blocks")
+}
+
+/// Refresh tokens: só o hash é guardado; rotação e revogação por linha.
+model StaffSession {
+  id        String    @id @default(uuid(7)) @db.Char(36)
+  staffId   String    @db.Char(36)
+  tokenHash String    @unique @db.Char(64)
+  expiresAt DateTime  @db.DateTime(3)
+  revokedAt DateTime? @db.DateTime(3)
+  createdAt DateTime  @default(now()) @db.DateTime(3)
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([staffId])
+  @@map("staff_sessions")
+}
+
+// -----------------------------------------------------------------------------
+//  Catálogo
+// -----------------------------------------------------------------------------
+
+model Service {
+  id          String   @id @default(uuid(7)) @db.Char(36)
+  shopId      String   @db.Char(36)
+  name        String   @db.VarChar(80)
+  priceCents  Int
+  durationMin Int      @db.SmallInt
+  bufferMin   Int      @default(0) @db.SmallInt /// limpeza entre clientes
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0) @db.SmallInt
+  createdAt   DateTime @default(now()) @db.DateTime(3)
+  updatedAt   DateTime @updatedAt @db.DateTime(3)
+
+  shop         Shop           @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  staff        StaffService[]
+  appointments Appointment[]
+
+  @@index([shopId, active])
+  @@map("services")
+}
+
+/// Quem executa o quê — com preço/duração próprios opcionais.
+model StaffService {
+  staffId     String @db.Char(36)
+  serviceId   String @db.Char(36)
+  priceCents  Int?
+  durationMin Int?   @db.SmallInt
+
+  staff   Staff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([staffId, serviceId])
+  @@index([serviceId])
+  @@map("staff_services")
+}
+
+// -----------------------------------------------------------------------------
+//  Clientes ("users" na taxonomia) — minimização de dados
+// -----------------------------------------------------------------------------
+
+model Client {
+  id             String    @id @default(uuid(7)) @db.Char(36)
+  shopId         String    @db.Char(36)
+  name           String    @db.VarChar(80)
+  phoneEnc       Bytes     @db.VarBinary(255) /// AES-256-GCM, AAD = shopId
+  phoneHash      String    @db.Char(64) /// HMAC-SHA256(pepper, shopId:E.164)
+  consentAt      DateTime? @db.DateTime(3)
+  remindersOptIn Boolean   @default(false)
+  createdAt      DateTime  @default(now()) @db.DateTime(3)
+  updatedAt      DateTime  @updatedAt @db.DateTime(3)
+
+  shop         Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+  tokens       AuthToken[]
+  privacyLogs  PrivacyLog[]
+
+  @@unique([shopId, phoneHash])
+  @@map("users")
+}
+
+// -----------------------------------------------------------------------------
+//  Agenda
+// -----------------------------------------------------------------------------
+
+model Appointment {
+  id              String            @id @default(uuid(7)) @db.Char(36)
+  shopId          String            @db.Char(36)
+  clientId        String?           @db.Char(36) /// NULL após direito ao esquecimento
+  staffId         String            @db.Char(36)
+  serviceId       String            @db.Char(36)
+  startsAt        DateTime          @db.DateTime(3)
+  endsAt          DateTime          @db.DateTime(3) /// já inclui o buffer
+  status          AppointmentStatus @default(SCHEDULED)
+  channel         Channel
+  priceCents      Int /// snapshot no momento da reserva
+  commissionCents Int /// snapshot no momento da reserva
+  cancelledAt     DateTime?         @db.DateTime(3)
+  completedAt     DateTime?         @db.DateTime(3)
+  createdAt       DateTime          @default(now()) @db.DateTime(3)
+  updatedAt       DateTime          @updatedAt @db.DateTime(3)
+
+  shop    Shop    @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  client  Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  staff   Staff   @relation(fields: [staffId], references: [id], onDelete: Restrict)
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  @@index([staffId, startsAt]) // checagem de conflito + agenda do barbeiro
+  @@index([shopId, startsAt]) // agenda da loja
+  @@index([shopId, status, startsAt]) // dashboards
+  @@index([clientId]) // portal de privacidade
+  @@index([serviceId])
+  @@map("appointments")
+}
+
+// -----------------------------------------------------------------------------
+//  LGPD
+// -----------------------------------------------------------------------------
+
+/// Append-only. Nenhum dado pessoal em claro: o titular é identificado por subjectHash.
+model PrivacyLog {
+  id            String        @id @default(uuid(7)) @db.Char(36)
+  shopId        String        @db.Char(36)
+  clientId      String?       @db.Char(36)
+  subjectHash   String        @db.Char(64)
+  action        PrivacyAction
+  channel       Channel
+  policyVersion String        @db.VarChar(20)
+  createdAt     DateTime      @default(now()) @db.DateTime(3)
+
+  shop   Shop    @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([shopId, subjectHash])
+  @@index([clientId])
+  @@map("privacy_logs")
+}
+
+/// OTP e magic link — uso único, só o hash é persistido.
+model AuthToken {
+  id        String       @id @default(uuid(7)) @db.Char(36)
+  clientId  String       @db.Char(36)
+  purpose   TokenPurpose
+  tokenHash String       @unique @db.Char(64)
+  attempts  Int          @default(0) @db.SmallInt
+  expiresAt DateTime     @db.DateTime(3)
+  usedAt    DateTime?    @db.DateTime(3)
+  createdAt DateTime     @default(now()) @db.DateTime(3)
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, purpose])
+  @@index([expiresAt])
+  @@map("auth_tokens")
+}
+
+// -----------------------------------------------------------------------------
+//  WhatsApp
+// -----------------------------------------------------------------------------
+
+model WhatsAppChannel {
+  id             String   @id @default(uuid(7)) @db.Char(36)
+  shopId         String   @unique @db.Char(36)
+  phoneNumberId  String   @unique @db.VarChar(40) /// roteia o webhook para o tenant
+  wabaId         String   @db.VarChar(40)
+  accessTokenEnc Bytes    @db.VarBinary(1024) /// segredo por tenant, criptografado
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @db.DateTime(3)
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@map("whatsapp_channels")
+}
+
+/// Idempotência: a Meta reenvia eventos. Nenhum conteúdo de mensagem aqui.
+model WhatsAppInbound {
+  wamid       String    @id @db.VarChar(128)
+  shopId      String    @db.Char(36)
+  receivedAt  DateTime  @default(now()) @db.DateTime(3)
+  processedAt DateTime? @db.DateTime(3)
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+  @@index([receivedAt]) // expurgo periódico
+  @@map("whatsapp_inbound")
+}
+
+/// Estado da conversa — persistido no banco, nunca na RAM (API stateless).
+model WhatsAppSession {
+  id        String   @id @default(uuid(7)) @db.Char(36)
+  shopId    String   @db.Char(36)
+  phoneHash String   @db.Char(64)
+  state     String   @db.VarChar(30)
+  context   Json
+  expiresAt DateTime @db.DateTime(3)
+  updatedAt DateTime @updatedAt @db.DateTime(3)
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, phoneHash])
+  @@index([expiresAt])
+  @@map("whatsapp_sessions")
+}
+
+// -----------------------------------------------------------------------------
+//  Fila (transactional outbox)
+// -----------------------------------------------------------------------------
+
+/// Payload referencia IDs, não telefones: se o cliente for esquecido, o job morre.
+model OutboxJob {
+  id        String    @id @default(uuid(7)) @db.Char(36)
+  type      String    @db.VarChar(50)
+  payload   Json
+  dedupeKey String?   @unique @db.VarChar(120)
+  runAt     DateTime  @db.DateTime(3)
+  status    JobStatus @default(PENDING)
+  attempts  Int       @default(0) @db.SmallInt
+  lockedAt  DateTime? @db.DateTime(3)
+  lastError String?   @db.Text
+  createdAt DateTime  @default(now()) @db.DateTime(3)
+
+  @@index([status, runAt])
+  @@map("outbox_jobs")
+}
