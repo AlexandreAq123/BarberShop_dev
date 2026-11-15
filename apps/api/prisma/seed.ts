@@ -4,13 +4,12 @@
  * • Não cria clientes — nenhum dado pessoal fictício no banco (minimização).
  */
 import "dotenv/config";
-import { hash } from "@node-rs/argon2";
 import { generateToken } from "../src/infra/crypto.js";
 import { createDb } from "../src/infra/db.js";
+import { hashPassword } from "../src/infra/password.js";
 
 const SLUG = "demo";
 const POLICY_VERSION = "2026-11";
-const ARGON2 = { memoryCost: 19456, timeCost: 2, parallelism: 1 } as const; // perfil OWASP
 
 const hhmm = (h: number, m = 0) => h * 60 + m;
 const WORK_DAYS = [2, 3, 4, 5, 6]; // terça a sábado
@@ -32,7 +31,7 @@ async function main() {
     const ownerPassword = process.env.SEED_OWNER_PASSWORD || generateToken(12);
     const ownerEmail = process.env.SEED_OWNER_EMAIL || "dono@demo.local";
     // Barbeiros recebem senha inutilizável; o acesso real virá por convite (Fase 2).
-    const unusable = () => hash(generateToken(32), ARGON2);
+    const unusable = () => hashPassword(generateToken(32));
 
     await db.$transaction(async (tx) => {
       const shop = await tx.shop.create({
@@ -74,7 +73,7 @@ async function main() {
           name: "Dono Demo",
           email: ownerEmail,
           role: "OWNER",
-          passwordHash: await hash(ownerPassword, ARGON2),
+          passwordHash: await hashPassword(ownerPassword),
         },
       });
 

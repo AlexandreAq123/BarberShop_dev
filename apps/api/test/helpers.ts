@@ -1,4 +1,6 @@
 import { randomBytes } from "node:crypto";
+import { createContainer, type AppDeps } from "../src/app/container.js";
+import type { DbHealth } from "../src/infra/db.js";
 import { loadEnv } from "../src/infra/env.js";
 
 /** Ambiente completo e válido, gerado na hora — testes nunca leem o .env real. */
@@ -19,3 +21,14 @@ export function validEnvSource(overrides: Record<string, string | undefined> = {
 
 export const testEnv = (overrides?: Record<string, string | undefined>) =>
   loadEnv(validEnvSource(overrides));
+
+/**
+ * Dependências do app para testes UNITÁRIOS. O Prisma Client é criado mas nunca
+ * conecta (nenhuma rota usada nesses testes toca o banco).
+ */
+export function testDeps(
+  overrides: { health?: DbHealth; env?: Record<string, string> } = {},
+): AppDeps {
+  const container = createContainer(testEnv(overrides.env));
+  return { ...container, health: overrides.health ?? { ping: async () => {} } };
+}

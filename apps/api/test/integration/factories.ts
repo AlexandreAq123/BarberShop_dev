@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Prisma } from "../../src/generated/prisma/client.ts";
+import { hashPassword } from "../../src/infra/password.js";
 import { testDb } from "./db.js";
 
 /**
@@ -19,9 +20,15 @@ export function createShop(data: Partial<Prisma.ShopUncheckedCreateInput> = {}) 
   });
 }
 
-export function createStaff(
+/** `password` gera um argon2 real (mais lento): use só em testes de login. */
+export async function createStaff(
   shopId: string,
-  data: Partial<Omit<Prisma.StaffUncheckedCreateInput, "shopId">> = {},
+  {
+    password,
+    ...data
+  }: Partial<Omit<Prisma.StaffUncheckedCreateInput, "shopId">> & {
+    password?: string;
+  } = {},
 ) {
   const id = uniq();
   return testDb().staff.create({
@@ -29,7 +36,7 @@ export function createStaff(
       shopId,
       name: `Barbeiro ${id}`,
       email: `staff-${id}@teste.local`,
-      passwordHash: FAKE_PASSWORD_HASH,
+      passwordHash: password ? await hashPassword(password) : FAKE_PASSWORD_HASH,
       ...data,
     },
   });

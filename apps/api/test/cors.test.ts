@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp, type App } from "../src/infra/http/app.js";
-import { testEnv } from "./helpers.js";
+import { testDeps } from "./helpers.js";
 
 const ADMIN = "http://localhost:5174";
 const BOOKING = "http://localhost:5173";
@@ -8,7 +8,7 @@ const EVIL = "https://site-malicioso.com";
 
 let app: App;
 beforeAll(async () => {
-  app = await buildApp({ env: testEnv(), health: { ping: async () => {} } });
+  app = await buildApp(testDeps());
 });
 afterAll(() => app.close());
 

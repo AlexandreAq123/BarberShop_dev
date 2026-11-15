@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/infra/http/app.js";
-import { testEnv } from "./helpers.js";
+import { testDeps } from "./helpers.js";
 
 let app: FastifyInstance | undefined;
 afterEach(async () => {
@@ -18,20 +18,20 @@ const brokenDb = {
 
 describe("health", () => {
   it("live responde 200 sem tocar no banco", async () => {
-    app = await buildApp({ env: testEnv(), health: brokenDb });
+    app = await buildApp(testDeps({ health: brokenDb }));
     const res = await app.inject({ method: "GET", url: "/health/live" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ status: "ok" });
   });
 
   it("ready responde 200 com banco ok", async () => {
-    app = await buildApp({ env: testEnv(), health: healthyDb });
+    app = await buildApp(testDeps({ health: healthyDb }));
     const res = await app.inject({ method: "GET", url: "/health/ready" });
     expect(res.statusCode).toBe(200);
   });
 
   it("ready responde 503 sem vazar o erro interno", async () => {
-    app = await buildApp({ env: testEnv(), health: brokenDb });
+    app = await buildApp(testDeps({ health: brokenDb }));
     const res = await app.inject({ method: "GET", url: "/health/ready" });
     expect(res.statusCode).toBe(503);
     expect(res.body).not.toContain("ECONNREFUSED");
@@ -42,7 +42,7 @@ describe("health", () => {
 describe("health com banco travado", () => {
   it("ready desiste em ~2s em vez de prender a requisição", async () => {
     const hangingDb = { ping: () => new Promise<void>(() => {}) };
-    app = await buildApp({ env: testEnv(), health: hangingDb });
+    app = await buildApp(testDeps({ health: hangingDb }));
     const started = Date.now();
     const res = await app.inject({ method: "GET", url: "/health/ready" });
     expect(res.statusCode).toBe(503);
@@ -52,7 +52,7 @@ describe("health com banco travado", () => {
 
 describe("hardening HTTP", () => {
   it("envia headers de segurança", async () => {
-    app = await buildApp({ env: testEnv(), health: healthyDb });
+    app = await buildApp(testDeps({ health: healthyDb }));
     const res = await app.inject({ method: "GET", url: "/health/live" });
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
     expect(res.headers["content-security-policy"]).toContain("default-src 'none'");
@@ -60,7 +60,7 @@ describe("hardening HTTP", () => {
   });
 
   it("health não envia CORS (não é chamado por navegador)", async () => {
-    app = await buildApp({ env: testEnv(), health: healthyDb });
+    app = await buildApp(testDeps({ health: healthyDb }));
     const res = await app.inject({
       method: "GET",
       url: "/health/live",
@@ -70,14 +70,14 @@ describe("hardening HTTP", () => {
   });
 
   it("404 padronizado em JSON", async () => {
-    app = await buildApp({ env: testEnv(), health: healthyDb });
+    app = await buildApp(testDeps({ health: healthyDb }));
     const res = await app.inject({ method: "GET", url: "/nao-existe" });
     expect(res.statusCode).toBe(404);
     expect(res.json()).toEqual({ error: "Não encontrado.", code: "NOT_FOUND" });
   });
 
   it("rejeita payload acima do limite", async () => {
-    app = await buildApp({ env: testEnv(), health: healthyDb });
+    app = await buildApp(testDeps({ health: healthyDb }));
     app.post("/eco", async () => ({ ok: true }));
     const res = await app.inject({
       method: "POST",
@@ -90,7 +90,7 @@ describe("hardening HTTP", () => {
   });
 
   it("aplica rate limit global", async () => {
-    app = await buildApp({ env: testEnv(), health: healthyDb });
+    app = await buildApp(testDeps({ health: healthyDb }));
     app.get("/ping", async () => ({ ok: true }));
     let last = 0;
     for (let i = 0; i < 121; i++) {

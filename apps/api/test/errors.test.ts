@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { buildApp, type App } from "../src/infra/http/app.js";
 import { AppError } from "../src/infra/http/errors.js";
-import { testEnv } from "./helpers.js";
+import { testDeps } from "./helpers.js";
 
 let app: App | undefined;
 afterEach(async () => {
@@ -11,7 +11,7 @@ afterEach(async () => {
 });
 
 async function appWith(register: (app: App) => void) {
-  app = await buildApp({ env: testEnv(), health: { ping: async () => {} } });
+  app = await buildApp(testDeps());
   register(app);
   return app;
 }

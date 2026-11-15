@@ -1,5 +1,8 @@
+import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import type { FastifyInstance } from "fastify";
+import { registerStaffAuth } from "../modules/auth/auth.plugin.js";
+import { authRoutes } from "../modules/auth/auth.routes.js";
 import { healthRoutes } from "../modules/health/health.routes.js";
 import type { AppDeps } from "./container.js";
 
@@ -45,6 +48,15 @@ export async function registerRoutes(app: FastifyInstance, deps: AppDeps) {
   await app.register(
     async (adminApi) => {
       await adminApi.register(cors, corsFor(env.ADMIN_ORIGIN));
+      // Cookie só neste escopo: o refresh token não existe fora do /api/admin.
+      await adminApi.register(cookie);
+      // Toda rota do /api/admin exige JWT de staff, salvo `config.auth = false`.
+      registerStaffAuth(adminApi, deps.staffTokens);
+
+      await adminApi.register(
+        authRoutes({ auth: deps.auth, secureCookies: env.NODE_ENV === "production" }),
+        { prefix: "/auth" },
+      );
     },
     { prefix: "/api/admin" },
   );
