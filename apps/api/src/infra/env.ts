@@ -23,8 +23,18 @@ const envSchema = z
     HOST: z.string().default("127.0.0.1"),
     PORT: z.coerce.number().int().min(1).max(65535).default(3333),
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
-    /** true quando a API roda atrás do Nginx (necessário para IP real no rate limit). */
-    TRUST_PROXY: z.stringbool().default(false),
+    /**
+     * `false` (dev, sem proxy) ou o número de proxies confiáveis à frente da API (1–5).
+     * Atrás do Nginx (na mesma máquina) use 1: o IP real vem do último salto de
+     * X-Forwarded-For. O salto 0 precisa ser loopback (ver trustProxyFn em http/app.ts).
+     * `true` não é aceito — confiaria em qualquer X-Forwarded-For forjado pelo cliente.
+     */
+    TRUST_PROXY: z
+      .enum(["false", "1", "2", "3", "4", "5"], {
+        error: "precisa ser false ou o número de proxies (1–5)",
+      })
+      .transform((v) => (v === "false" ? false : Number(v)))
+      .default(false),
 
     DATABASE_URL: dbUrl,
     DB_CONNECTION_LIMIT: z.coerce.number().int().min(1).max(50).default(5),

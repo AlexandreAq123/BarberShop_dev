@@ -18,6 +18,7 @@ export default defineConfig({
   },
   datasource: {
     url: process.env.MIGRATION_DATABASE_URL,
-    shadowDatabaseUrl: process.env.SHADOW_DATABASE_URL,
+    // Vazio no .env = não definido (o Prisma rejeita string vazia).
+    shadowDatabaseUrl: process.env.SHADOW_DATABASE_URL || undefined,
   },
 });

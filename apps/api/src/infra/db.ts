@@ -1,5 +1,5 @@
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
-import { PrismaClient } from "../generated/prisma/client.ts";
+import { PrismaClient, type Prisma } from "../generated/prisma/client.ts";
 import type { Env } from "./env.js";
 
 /**
@@ -32,6 +32,22 @@ export function createDb(env: Pick<Env, "DATABASE_URL" | "DB_CONNECTION_LIMIT">)
 }
 
 export type Db = ReturnType<typeof createDb>;
+
+/**
+ * Cliente dentro de `db.$transaction(async (tx) => …)`. Repositórios recebem
+ * `Db | DbTx` para que o mesmo método rode dentro ou fora de uma transação.
+ */
+export type DbTx = Prisma.TransactionClient;
+
+/**
+ * Trava a linha da loja até o fim da transação. Operações que validam dados contra a
+ * configuração da loja (passo de slot, horário de funcionamento) passam por aqui:
+ * assim "alterar a configuração" e "gravar algo que depende dela" nunca se cruzam.
+ * Template tag ⇒ parâmetro preparado; nunca `$queryRawUnsafe`.
+ */
+export async function lockShop(tx: DbTx, shopId: string): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM shops WHERE id = ${shopId} FOR UPDATE`;
+}
 
 /** Contrato mínimo usado pelo health check — facilita testar sem banco. */
 export interface DbHealth {

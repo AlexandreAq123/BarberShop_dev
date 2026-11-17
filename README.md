@@ -21,6 +21,7 @@ pnpm env:secrets                  # imprime segredos novos: cole cada bloco no a
 pnpm db:up                        # MySQL 8.4 local (só em 127.0.0.1)
 pnpm db:migrate --name init       # 1ª vez: cria a migration inicial → faça commit dela
 pnpm db:seed                      # "Barbearia Demo" + login do dono (senha mostrada uma vez)
+pnpm db:deploy:test               # migrations no banco de testes (barber_test)
 
 pnpm dev                          # API em http://127.0.0.1:3333
 curl http://127.0.0.1:3333/health/ready   # {"status":"ok"}
@@ -29,15 +30,40 @@ curl http://127.0.0.1:3333/health/ready   # {"status":"ok"}
 Se alguma variável obrigatória faltar, a API **não sobe** e lista o que está errado
 (sem nunca imprimir valores).
 
+## Testes de integração
+
+`pnpm test:int` roda `apps/api/test/integration/**/*.int.test.ts` contra o MySQL real,
+no banco **`barber_test`** (`TEST_DATABASE_URL` em `apps/api/.env`). Cada arquivo começa
+com o banco vazio (`resetDb()`), e o helper recusa qualquer banco cujo nome não termine
+em `_test`. Depois de cada nova migration, rode `pnpm db:deploy:test`.
+
+O `barber_test` é criado na primeira subida do container. **Se o seu volume é anterior
+a isso**, crie-o manualmente (uma vez):
+
+```bash
+docker exec -i barber-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD"' <<'SQL'
+CREATE DATABASE IF NOT EXISTS `barber_test` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+GRANT SELECT, INSERT, UPDATE, DELETE ON `barber_test`.* TO 'barber_app'@'%';
+SQL
+```
+
+e adicione ao `apps/api/.env` (mesmas senhas das URLs do banco `barber`):
+
+```bash
+TEST_DATABASE_URL=mysql://barber_app:SENHA_APP@127.0.0.1:3306/barber_test
+TEST_MIGRATION_DATABASE_URL=mysql://barber_migrator:SENHA_MIGRATOR@127.0.0.1:3306/barber_test
+```
+
 ## Estrutura
 
 ```
 apps/
   api/                 Fastify + Prisma (MySQL) — monólito modular
     prisma/            schema.prisma, migrations, seed
-    src/infra/         env, db, crypto, logger, http
+    src/app/           composition root (container) e grupos de rotas
+    src/infra/         env, db, crypto, logger, http (erros, zod)
     src/modules/       um domínio por pasta (controller · service · repository)
-    test/              Vitest
+    test/              Vitest (unitários) · test/integration (MySQL)
 packages/
   contracts/           schemas zod compartilhados (ex.: telefone E.164)
 docker/mysql/init/     criação dos usuários do banco (menor privilégio)
@@ -56,10 +82,12 @@ docs/
 | --------------------------------------------- | --------------------------------------------- |
 | `pnpm dev`                                    | API com reload                                |
 | `pnpm test` / `typecheck` / `lint` / `format` | Qualidade (o CI roda todos)                   |
+| `pnpm test:int`                               | Testes de integração (MySQL, `barber_test`)   |
 | `pnpm build`                                  | Bundle da API em `apps/api/dist`              |
 | `pnpm db:up` / `db:down`                      | Sobe/derruba o MySQL local                    |
 | `pnpm db:migrate`                             | Nova migration (somente dev)                  |
 | `pnpm db:deploy`                              | Aplica migrations (produção/CI)               |
+| `pnpm db:deploy:test`                         | Aplica migrations no `barber_test`            |
 | `pnpm db:seed`                                | Dados de demonstração (bloqueado em produção) |
 | `pnpm env:secrets`                            | Gera segredos locais                          |
 

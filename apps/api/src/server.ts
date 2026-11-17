@@ -1,4 +1,4 @@
-import { createDb, dbHealth } from "./infra/db.js";
+import { createContainer } from "./app/container.js";
 import { EnvValidationError, loadEnv, type Env } from "./infra/env.js";
 import { buildApp } from "./infra/http/app.js";
 
@@ -13,8 +13,8 @@ try {
   throw err;
 }
 
-const db = createDb(env);
-const app = await buildApp({ env, db: dbHealth(db) });
+const container = createContainer(env);
+const app = await buildApp(container);
 
 let shuttingDown = false;
 async function shutdown(signal: string) {
@@ -23,7 +23,7 @@ async function shutdown(signal: string) {
   app.log.info({ signal }, "encerrando com segurança");
   // Para de aceitar conexões, termina as requisições em andamento e fecha o pool.
   await app.close();
-  await db.$disconnect();
+  await container.close();
   process.exit(0);
 }
 
@@ -34,6 +34,6 @@ try {
   await app.listen({ host: env.HOST, port: env.PORT });
 } catch (err) {
   app.log.fatal({ err }, "falha ao iniciar o servidor");
-  await db.$disconnect();
+  await container.close();
   process.exit(1);
 }

@@ -31,6 +31,8 @@ jobs:
     env:
       # Banco descartável do CI — não é segredo de nenhum ambiente real.
       MIGRATION_DATABASE_URL: mysql://root:ci_only_root@127.0.0.1:3306/barber
+      TEST_MIGRATION_DATABASE_URL: mysql://root:ci_only_root@127.0.0.1:3306/barber_test
+      TEST_DATABASE_URL: mysql://root:ci_only_root@127.0.0.1:3306/barber_test
 
     steps:
       # Actions fixadas por SHA (tag entre parênteses) contra ataque de supply chain.
@@ -54,3 +56,10 @@ jobs:
         run: |
           pnpm exec prisma migrate deploy
           pnpm exec prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+
+      - name: Testes de integração (MySQL)
+        run: |
+          mysql -h 127.0.0.1 -uroot -pci_only_root \
+            -e "CREATE DATABASE barber_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
+          pnpm db:deploy:test
+          pnpm test:int

@@ -14,11 +14,13 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "pnpm -r test",
+    "test:int": "pnpm --filter @barber/api test:int",
     "db:up": "docker compose up -d mysql",
     "db:down": "docker compose down",
     "db:generate": "pnpm --filter @barber/api db:generate",
     "db:migrate": "pnpm --filter @barber/api db:migrate",
     "db:deploy": "pnpm --filter @barber/api db:deploy",
+    "db:deploy:test": "pnpm --filter @barber/api db:deploy:test",
     "db:seed": "pnpm --filter @barber/api db:seed",
     "env:secrets": "node apps/api/scripts/gen-secrets.mjs"
   },

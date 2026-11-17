@@ -24,6 +24,15 @@ describe("loadEnv", () => {
     }
   });
 
+  it("TRUST_PROXY aceita false ou nº de saltos (1–5)", () => {
+    expect(loadEnv(validEnvSource({ TRUST_PROXY: "false" })).TRUST_PROXY).toBe(false);
+    expect(loadEnv(validEnvSource({ TRUST_PROXY: "1" })).TRUST_PROXY).toBe(1);
+  });
+
+  it.each(["true", "0", "6", "1.5", "sim", ""])("TRUST_PROXY=%j falha no boot", (value) => {
+    expect(() => loadEnv(validEnvSource({ TRUST_PROXY: value }))).toThrow(/TRUST_PROXY/);
+  });
+
   it("rejeita chave AES com tamanho errado", () => {
     expect(() => loadEnv(validEnvSource({ PHONE_ENC_KEY: "curta" }))).toThrow(/PHONE_ENC_KEY/);
   });

@@ -111,18 +111,20 @@ model BusinessHour {
 // -----------------------------------------------------------------------------
 
 model Staff {
-  id            String    @id @default(uuid(7)) @db.Char(36)
-  shopId        String    @db.Char(36)
-  name          String    @db.VarChar(80)
-  title         String?   @db.VarChar(60)
-  email         String    @db.VarChar(120)
-  passwordHash  String    @db.VarChar(255) /// argon2id
-  role          StaffRole @default(BARBER)
-  commissionBps Int       @default(0) @db.SmallInt
-  active        Boolean   @default(true)
-  mfaSecretEnc  Bytes?    @db.VarBinary(255)
-  createdAt     DateTime  @default(now()) @db.DateTime(3)
-  updatedAt     DateTime  @updatedAt @db.DateTime(3)
+  id                 String    @id @default(uuid(7)) @db.Char(36)
+  shopId             String    @db.Char(36)
+  name               String    @db.VarChar(80)
+  title              String?   @db.VarChar(60)
+  email              String    @db.VarChar(120)
+  passwordHash       String    @db.VarChar(255) /// argon2id
+  /// true após reset de senha: o staff só acessa a troca de senha.
+  mustChangePassword Boolean   @default(false)
+  role               StaffRole @default(BARBER)
+  commissionBps      Int       @default(0) @db.SmallInt
+  active             Boolean   @default(true)
+  mfaSecretEnc       Bytes?    @db.VarBinary(255)
+  createdAt          DateTime  @default(now()) @db.DateTime(3)
+  updatedAt          DateTime  @updatedAt @db.DateTime(3)
 
   shop         Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
   schedules    StaffSchedule[]
