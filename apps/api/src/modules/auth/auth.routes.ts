@@ -72,11 +72,23 @@ export function authRoutes(deps: { auth: AuthService; secureCookies: boolean }) 
 
   const plugin: FastifyPluginAsyncZod = async (app) => {
     // Limite por loja+e-mail: segura força bruta distribuída por vários IPs.
-    const perAccountLimit = app.rateLimit({
+    // `createRateLimit` (e não `app.rateLimit` como preHandler): o limite por IP da rota
+    // já marca a requisição como "rate limit aplicado", e o handler de `app.rateLimit`
+    // pularia a contagem em silêncio — o limite por conta nunca dispararia.
+    const accountLimit = app.createRateLimit({
       max: 5,
       timeWindow: "15 minutes",
       keyGenerator: accountKey,
     });
+    async function perAccountLimit(request: FastifyRequest, reply: FastifyReply) {
+      const result = await accountLimit(request);
+      if (!result.isAllowed && result.isExceeded) {
+        reply.header("retry-after", result.ttlInSeconds);
+        throw new AppError("TOO_MANY_REQUESTS", "Muitas tentativas. Tente novamente mais tarde.", {
+          code: "RATE_LIMITED",
+        });
+      }
+    }
 
     app.post(
       "/login",

@@ -21,6 +21,14 @@ export function createAuthRepository(db: Db) {
       });
     },
 
+    /** Estado atual do staff para o guard (releitura a cada requisição autenticada). */
+    findStaffAccess(staffId: string, shopId: string) {
+      return db.staff.findFirst({
+        where: { id: staffId, shopId },
+        select: { active: true, role: true, mustChangePassword: true },
+      });
+    },
+
     findStaff(staffId: string, shopId: string) {
       return db.staff.findFirst({ where: { id: staffId, shopId }, select: STAFF_AUTH_SELECT });
     },
@@ -46,10 +54,11 @@ export function createAuthRepository(db: Db) {
     },
 
     /**
-     * Revoga UMA sessão de forma atômica. Devolve false se ela já estava
-     * revogada — é isso que impede duas rotações paralelas do mesmo token.
+     * Marca a sessão como ROTACIONADA (revokedAt). A linha fica como lápide até expirar:
+     * reapresentar esse token = reuso ⇒ provável roubo. Devolve false se ela já estava
+     * rotacionada — é isso que impede duas rotações paralelas do mesmo token.
      */
-    async revokeSession(sessionId: string, now: Date, tx: Db | DbTx = db): Promise<boolean> {
+    async rotateSession(sessionId: string, now: Date, tx: Db | DbTx = db): Promise<boolean> {
       const { count } = await tx.staffSession.updateMany({
         where: { id: sessionId, revokedAt: null },
         data: { revokedAt: now },
@@ -57,15 +66,18 @@ export function createAuthRepository(db: Db) {
       return count === 1;
     },
 
-    /** Revoga todas as sessões ativas do staff, exceto (opcionalmente) uma. */
-    revokeAllSessions(staffId: string, now: Date, exceptSessionId?: string, tx: Db | DbTx = db) {
-      return tx.staffSession.updateMany({
-        where: {
-          staffId,
-          revokedAt: null,
-          ...(exceptSessionId && { id: { not: exceptSessionId } }),
-        },
-        data: { revokedAt: now },
+    /**
+     * Encerra UMA sessão (logout, expirada). Apaga a linha em vez de marcar revokedAt:
+     * um token encerrado de forma legítima dá 401 simples, sem disparar a detecção de reuso.
+     */
+    async endSession(sessionId: string, tx: Db | DbTx = db): Promise<void> {
+      await tx.staffSession.deleteMany({ where: { id: sessionId } });
+    },
+
+    /** Encerra todas as sessões do staff (inclusive lápides), exceto (opcionalmente) uma. */
+    async endAllSessions(staffId: string, exceptSessionId?: string, tx: Db | DbTx = db) {
+      await tx.staffSession.deleteMany({
+        where: { staffId, ...(exceptSessionId && { id: { not: exceptSessionId } }) },
       });
     },
 

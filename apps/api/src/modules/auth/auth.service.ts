@@ -90,21 +90,21 @@ export function createAuthService(deps: {
 
       const at = now();
       if (session.revokedAt) {
-        await repo.revokeAllSessions(session.staffId, at);
+        await repo.endAllSessions(session.staffId);
         throw new AppError("UNAUTHORIZED", SESSION_EXPIRED, { code: "SESSION_REVOKED" });
       }
       if (session.expiresAt <= at || !session.staff.active) {
-        await repo.revokeSession(session.id, at);
+        await repo.endSession(session.id);
         throw new AppError("UNAUTHORIZED", SESSION_EXPIRED);
       }
 
       const rotated = await repo.transaction(async (tx) => {
         // Atômico: se outra requisição rotacionou este token no meio do caminho, é reuso.
-        if (!(await repo.revokeSession(session.id, at, tx))) return null;
+        if (!(await repo.rotateSession(session.id, at, tx))) return null;
         return issue(session.staff, tx);
       });
       if (!rotated) {
-        await repo.revokeAllSessions(session.staffId, at);
+        await repo.endAllSessions(session.staffId);
         throw new AppError("UNAUTHORIZED", SESSION_EXPIRED, { code: "SESSION_REVOKED" });
       }
       return rotated;
@@ -113,7 +113,7 @@ export function createAuthService(deps: {
     async logout(refreshToken: string | undefined): Promise<void> {
       if (!refreshToken) return;
       const session = await repo.findSession(hashToken(refreshToken));
-      if (session) await repo.revokeSession(session.id, now());
+      if (session) await repo.endSession(session.id);
     },
 
     /** Troca a própria senha; as OUTRAS sessões caem, a atual continua. */
@@ -146,7 +146,7 @@ export function createAuthService(deps: {
       const passwordHash = await hashPassword(input.newPassword);
       await repo.transaction(async (tx) => {
         await repo.updatePassword(staff.id, passwordHash, tx);
-        await repo.revokeAllSessions(staff.id, now(), keepSessionId, tx);
+        await repo.endAllSessions(staff.id, keepSessionId, tx);
       });
 
       return { accessToken: await accessFor({ ...staff, mustChangePassword: false }) };

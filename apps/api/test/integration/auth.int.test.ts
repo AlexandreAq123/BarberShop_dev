@@ -335,3 +335,23 @@ describe("troca de senha", () => {
     expect((await refresh(refreshCookie(current))).statusCode).toBe(200);
   });
 });
+
+describe("sessão encerrada não é tratada como roubo", () => {
+  it("refresh com token de logout dá 401 sem derrubar a outra sessão", async () => {
+    const { shop, staff } = await setup();
+    const creds = { shopSlug: shop.slug, email: staff.email, password: PASSWORD };
+    const a = refreshCookie(await login(creds, "10.3.0.1"));
+    const b = refreshCookie(await login(creds, "10.3.0.2"));
+
+    await app.inject({
+      method: "POST",
+      url: "/api/admin/auth/logout",
+      headers: FETCH,
+      cookies: { [REFRESH_COOKIE]: a! },
+    });
+    const replay = await refresh(a);
+    expect(replay.statusCode).toBe(401);
+    expect(replay.json().code).not.toBe("SESSION_REVOKED");
+    expect((await refresh(b)).statusCode).toBe(200);
+  });
+});

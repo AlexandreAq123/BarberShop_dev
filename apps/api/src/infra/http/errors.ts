@@ -16,6 +16,7 @@ export const ERROR_STATUS = {
   NOT_FOUND: 404,
   CONFLICT: 409,
   UNPROCESSABLE: 422,
+  TOO_MANY_REQUESTS: 429,
 } as const;
 
 export type ErrorKind = keyof typeof ERROR_STATUS;
