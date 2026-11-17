@@ -10,8 +10,12 @@ const REDACT_PATHS = [
   "req.headers.cookie",
   'req.headers["x-hub-signature-256"]',
   'res.headers["set-cookie"]',
+  // `*.x` cobre só UM nível de aninhamento: o caminho no topo vai explícito.
+  "password",
   "*.password",
   "*.passwordHash",
+  "temporaryPassword",
+  "*.temporaryPassword",
   "*.token",
   "*.phone",
   "*.phoneE164",

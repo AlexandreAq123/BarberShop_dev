@@ -84,27 +84,64 @@ token de outra loja não acessa nada; `mustChangePassword` bloqueia as demais ro
 ## [ ] 2.2 — Gestão da loja, equipe e catálogo (admin)
 
 Módulos `modules/catalog` (serviços), `modules/staff` (equipe, vínculos, escalas) e
-`modules/scheduling` (horário da loja e bloqueios — só CRUD nesta tarefa).
+`modules/scheduling` (dados/horário da loja e bloqueios — só CRUD nesta tarefa).
 
-**Matriz de permissão**
+**Matriz de permissão** (hierarquia estrita: cada papel só gerencia papéis abaixo do seu)
 
-| Recurso                                    | OWNER    | MANAGER           | BARBER         | FINANCE |
-| ------------------------------------------ | -------- | ----------------- | -------------- | ------- |
-| Dados da loja, horários de funcionamento   | ✏️       | ✏️                | 👁️             | 👁️      |
-| Serviços                                   | ✏️       | ✏️                | 👁️             | 👁️      |
-| Equipe (criar, desativar, papel, comissão) | ✏️       | ✏️ (exceto OWNER) | 👁️ básico      | 👁️      |
-| Escala e bloqueios                         | ✏️ todos | ✏️ todos          | ✏️ os próprios | —       |
-| Reset de senha de staff                    | ✏️       | ✏️ (exceto OWNER) | —              | —       |
+| Recurso                                   | OWNER               | MANAGER                | BARBER         | FINANCE |
+| ----------------------------------------- | ------------------- | ---------------------- | -------------- | ------- |
+| Dados da loja, horários de funcionamento  | ✏️                  | ✏️                     | 👁️             | 👁️      |
+| Serviços                                  | ✏️                  | ✏️                     | 👁️             | 👁️      |
+| Equipe (criar, editar, desativar, papel)  | ✏️ todos, menos ele | ✏️ só BARBER e FINANCE | 👁️ básico      | 👁️      |
+| Atribuir papel                            | qualquer            | só BARBER ou FINANCE   | —              | —       |
+| Vínculos staff × serviço                  | ✏️ todos            | ✏️ só BARBER e FINANCE | 👁️             | 👁️      |
+| Escala e bloqueios                        | ✏️ todos            | ✏️ todos               | ✏️ os próprios | —       |
+| Bloqueio da loja inteira (`staffId` nulo) | ✏️                  | ✏️                     | 👁️             | —       |
+| Reset de senha de staff                   | ✏️ todos, menos ele | ✏️ só BARBER e FINANCE | —              | —       |
+
+MANAGER não cria, edita, desativa, reseta nem promove ninguém a MANAGER ou OWNER, nem mexe em
+outro MANAGER (o reset expõe a senha temporária ⇒ tomaria a conta). Ninguém muda o próprio papel,
+se desativa ou reseta a própria senha por estas rotas (para a senha existe a troca de senha).
+
+**Autenticação (ajuste da 2.1):** o hook `authenticate` relê o staff no banco em TODA rota
+autenticada do `/api/admin` (por `id` + `shopId`, só `active`, `role`, `mustChangePassword`).
+Inexistente ou inativo ⇒ 401. `request.staff` usa papel e `mustChangePassword` do BANCO.
+
+**Isolamento:** `shopId` vem SEMPRE de `request.staff`, nunca de body/query/params. Todo
+repository filtra por `shopId`; recurso de outra loja ⇒ 404 (não 403). `staff_services` e
+`staff_schedules` não têm `shopId`: staff e serviço são validados como da loja antes de vincular.
+
+**Desativação, papel e reset**
 
 - Nada é apagado se tiver agendamento: serviços e staff são **desativados** (`active=false`).
-- Reset de senha gera senha temporária exibida **uma vez** e liga `mustChangePassword`.
-- Validações: `openMin < closeMin`, sem sobreposição de faixas no mesmo dia, `weekday` 0–6,
-  `priceCents ≥ 0`, `durationMin` múltiplo de `slotStepMin`, `commissionBps` 0–10000,
-  bloqueio com `startsAt < endsAt`. Escala do barbeiro dentro do horário da loja.
-- Respostas de staff **nunca** incluem `passwordHash`, `mfaSecretEnc` ou e-mail de terceiros
-  para BARBER.
+- Desativar ou mudar o papel encerra todas as `staff_sessions` dele na mesma transação.
+- Nunca fica sem OWNER ativo: rebaixar/desativar OWNER trava as linhas de OWNER
+  (`SELECT … FOR UPDATE` via `$queryRaw` com template tag) e responde `422 LAST_OWNER`.
+- Reset: senha temporária gerada no servidor (`generateToken`), hash argon2, exibida **uma vez**
+  (`Cache-Control: no-store`), `mustChangePassword=true` e sessões encerradas. Rate limit 5/min.
+  Nunca aparece em log (redação de `temporaryPassword`).
+- Eventos estruturados de log, sem dado pessoal: `staff.password_reset`, `staff.role_changed`,
+  `staff.deactivated` com `actorId`, `targetId`, `shopId`.
 
-**Testes:** matriz de permissão (tabela-driven), isolamento entre lojas, validações.
+**Validações**
+
+- `openMin < closeMin` (0–1440), sem sobreposição de faixas no mesmo dia, `weekday` 0–6,
+  `priceCents ≥ 0`, `commissionBps` 0–10000.
+- `durationMin` do serviço **e** o override de `staff_services` múltiplos de `slotStepMin`.
+- Alterar `slotStepMin` com serviço/override incompatível ⇒ `422` listando os conflitos.
+- Escala do barbeiro dentro do horário da loja; reduzir o horário da loja com escala fora da
+  nova faixa ⇒ `422` listando os conflitos (nada é ajustado em silêncio).
+- Bloqueio: datas ISO **com fuso**, `startsAt < endsAt`, duração máxima de 31 dias.
+- E-mail repetido na loja ⇒ `409`.
+
+**Respostas:** schemas Zod de saída por papel; BARBER recebe só `id, name, role, active` dos
+colegas. Respostas de staff **nunca** incluem `passwordHash` ou `mfaSecretEnc`. Listagens com
+paginação (`limit` ≤ 100) e ordenação estável.
+
+**Testes:** matriz tabela-driven papel × rota × (próprio | outro | outra loja) ⇒ status,
+isolamento entre lojas, validações, último OWNER, sessões encerradas, redação do log.
+
+Arquivos acima de ~250 linhas: dividir (ex.: `staff.service.ts` + `staff.permissions.ts`).
 
 ---
 
@@ -193,6 +230,10 @@ Endpoints:
 - Preço enviado pelo cliente é ignorado; snapshot não muda quando o preço do serviço muda.
 - Consentimento obrigatório e registrado; outbox criado na mesma transação (rollback ⇒ nada).
 - Telefone em formatos diferentes ⇒ mesmo cliente. Isolamento entre lojas.
+
+**Pendência herdada da 2.2:** reduzir o horário da loja, a escala do barbeiro ou criar bloqueio
+sobre agendamentos futuros ativos precisa responder `422` listando os agendamentos afetados
+(a 2.2 só confere escala × horário da loja, porque agendamentos ainda não existiam).
 
 ---
 

@@ -1,13 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp, type App } from "../src/infra/http/app.js";
 import type { StaffClaims } from "../src/modules/auth/auth.tokens.js";
-import { testDeps } from "./helpers.js";
+import { fakeStaffAccess, testDeps } from "./helpers.js";
 
-/** O guard roda ANTES de qualquer acesso ao banco: dá para testar sem MySQL. */
+/** O guard relê o staff via StaffAccess; aqui ele é um mapa em memória (sem MySQL). */
+const access = new Map<string, Awaited<ReturnType<ReturnType<typeof fakeStaffAccess>["load"]>>>([
+  ["staff-mcp", { active: true, role: "BARBER", mustChangePassword: true }],
+]);
 let app: App;
 let deps: ReturnType<typeof testDeps>;
 beforeAll(async () => {
-  deps = testDeps();
+  deps = testDeps({ staffAccess: fakeStaffAccess(access) });
   app = await buildApp(deps);
 });
 afterAll(() => app.close());
@@ -47,14 +50,28 @@ describe("guard do /api/admin", () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it("mustChangePassword bloqueia as demais rotas com 403", async () => {
+  it("mustChangePassword (do BANCO) bloqueia as demais rotas com 403", async () => {
+    // O token diz mustChangePassword=false; vale o banco (true).
     const res = await app.inject({
       method: "GET",
       url: "/api/admin/auth/me",
-      headers: { authorization: `Bearer ${await sign({ mustChangePassword: true })}` },
+      headers: { authorization: `Bearer ${await sign({ staffId: "staff-mcp" })}` },
     });
     expect(res.statusCode).toBe(403);
     expect(res.json().code).toBe("PASSWORD_CHANGE_REQUIRED");
+  });
+
+  it.each([
+    ["desativado", { active: false, role: "OWNER" as const, mustChangePassword: false }],
+    ["inexistente", null],
+  ])("token válido de staff %s ⇒ 401", async (_name, row) => {
+    access.set("staff-gone", row);
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/admin/auth/me",
+      headers: { authorization: `Bearer ${await sign({ staffId: "staff-gone" })}` },
+    });
+    expect(res.statusCode).toBe(401);
   });
 
   it("login, refresh e logout são públicos (não pedem JWT)", async () => {
@@ -76,7 +93,7 @@ describe("guard do /api/admin", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/admin/auth/password",
-      headers: { authorization: `Bearer ${await sign({ mustChangePassword: true })}` },
+      headers: { authorization: `Bearer ${await sign({ staffId: "staff-mcp" })}` },
       payload: { currentPassword: "atual-secreta", newPassword: "curta" },
     });
     expect(res.statusCode).toBe(400);

@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { createContainer, type AppDeps } from "../src/app/container.js";
 import type { DbHealth } from "../src/infra/db.js";
 import { loadEnv } from "../src/infra/env.js";
+import type { StaffAccess } from "../src/modules/auth/auth.plugin.js";
 
 /** Ambiente completo e válido, gerado na hora — testes nunca leem o .env real. */
 export function validEnvSource(overrides: Record<string, string | undefined> = {}) {
@@ -22,13 +23,32 @@ export function validEnvSource(overrides: Record<string, string | undefined> = {
 export const testEnv = (overrides?: Record<string, string | undefined>) =>
   loadEnv(validEnvSource(overrides));
 
+type AccessRow = Awaited<ReturnType<StaffAccess["load"]>>;
+
+/**
+ * StaffAccess em memória para os testes unitários (o guard relê o staff no banco).
+ * Staff sem entrada no mapa = OWNER ativo sem troca de senha pendente.
+ */
+export function fakeStaffAccess(rows: Map<string, AccessRow> = new Map()): StaffAccess {
+  return {
+    load: async (staffId) =>
+      rows.has(staffId)
+        ? (rows.get(staffId) ?? null)
+        : { active: true, role: "OWNER", mustChangePassword: false },
+  };
+}
+
 /**
  * Dependências do app para testes UNITÁRIOS. O Prisma Client é criado mas nunca
  * conecta (nenhuma rota usada nesses testes toca o banco).
  */
 export function testDeps(
-  overrides: { health?: DbHealth; env?: Record<string, string> } = {},
+  overrides: { health?: DbHealth; env?: Record<string, string>; staffAccess?: StaffAccess } = {},
 ): AppDeps {
   const container = createContainer(testEnv(overrides.env));
-  return { ...container, health: overrides.health ?? { ping: async () => {} } };
+  return {
+    ...container,
+    health: overrides.health ?? { ping: async () => {} },
+    staffAccess: overrides.staffAccess ?? fakeStaffAccess(),
+  };
 }

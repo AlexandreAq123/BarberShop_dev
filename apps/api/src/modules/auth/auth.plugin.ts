@@ -18,6 +18,14 @@ declare module "fastify" {
 
 const UNAUTHENTICATED = "Não autenticado.";
 
+/** Estado do staff no BANCO — fonte da verdade para papel e bloqueios, não o JWT. */
+export interface StaffAccess {
+  load(
+    staffId: string,
+    shopId: string,
+  ): Promise<{ active: boolean; role: StaffRole; mustChangePassword: boolean } | null>;
+}
+
 function bearer(request: FastifyRequest): string | undefined {
   const header = request.headers.authorization;
   if (!header) return undefined;
@@ -28,8 +36,12 @@ function bearer(request: FastifyRequest): string | undefined {
 /**
  * Protege TODAS as rotas do escopo por padrão (secure by default): uma rota
  * nova esquecida sem configuração fica fechada, não aberta.
+ *
+ * O JWT só prova QUEM é (staffId + shopId). Papel, `active` e `mustChangePassword`
+ * são relidos no banco a cada requisição: desativar ou rebaixar vale na hora,
+ * sem esperar o access token (15 min) expirar.
  */
-export function registerStaffAuth(app: FastifyInstance, tokens: StaffTokens) {
+export function registerStaffAuth(app: FastifyInstance, tokens: StaffTokens, access: StaffAccess) {
   app.decorateRequest("staff", null);
 
   app.addHook("onRequest", async (request) => {
@@ -39,11 +51,21 @@ export function registerStaffAuth(app: FastifyInstance, tokens: StaffTokens) {
 
     const token = bearer(request);
     if (!token) throw new AppError("UNAUTHORIZED", UNAUTHENTICATED);
+    let claims: StaffClaims;
     try {
-      request.staff = await tokens.verify(token);
+      claims = await tokens.verify(token);
     } catch {
       throw new AppError("UNAUTHORIZED", UNAUTHENTICATED);
     }
+
+    const current = await access.load(claims.staffId, claims.shopId);
+    if (!current || !current.active) throw new AppError("UNAUTHORIZED", UNAUTHENTICATED);
+    request.staff = {
+      staffId: claims.staffId,
+      shopId: claims.shopId,
+      role: current.role,
+      mustChangePassword: current.mustChangePassword,
+    };
 
     if (request.staff.mustChangePassword && !config.allowMustChangePassword) {
       throw new AppError("FORBIDDEN", "Troque sua senha para continuar.", {

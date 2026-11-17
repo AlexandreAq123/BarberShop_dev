@@ -26,10 +26,14 @@ export interface ErrorIssue {
   message: string;
 }
 
+/** Item que impede a operação (ex.: serviço incompatível com o novo passo de slot). */
+export type ErrorConflict = Record<string, string | number | null>;
+
 export interface ErrorBody {
   error: string;
   code: string;
   issues?: ErrorIssue[];
+  conflicts?: ErrorConflict[];
 }
 
 export class AppError extends Error {
@@ -37,17 +41,19 @@ export class AppError extends Error {
   /** Código estável para o front. Padrão = kind; pode ser específico (ex.: SLOT_TAKEN). */
   readonly code: string;
   readonly issues?: ErrorIssue[];
+  readonly conflicts?: ErrorConflict[];
 
   constructor(
     kind: ErrorKind,
     message: string,
-    options: { code?: string; issues?: ErrorIssue[] } = {},
+    options: { code?: string; issues?: ErrorIssue[]; conflicts?: ErrorConflict[] } = {},
   ) {
     super(message);
     this.name = "AppError";
     this.statusCode = ERROR_STATUS[kind];
     this.code = options.code ?? kind;
     if (kind === "VALIDATION" && options.issues) this.issues = options.issues;
+    if (options.conflicts) this.conflicts = options.conflicts;
   }
 }
 
@@ -85,6 +91,7 @@ export function errorHandler(
   if (error instanceof AppError) {
     const body: ErrorBody = { error: error.message, code: error.code };
     if (error.issues) body.issues = error.issues;
+    if (error.conflicts) body.conflicts = error.conflicts;
     return reply.code(error.statusCode).send(body);
   }
 

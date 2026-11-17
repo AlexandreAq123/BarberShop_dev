@@ -336,6 +336,30 @@ describe("troca de senha", () => {
   });
 });
 
+describe("estado do staff relido a cada requisição", () => {
+  it("desativado: o access token atual para de valer na hora", async () => {
+    const { shop, staff } = await setup();
+    const { accessToken } = (
+      await login({ shopSlug: shop.slug, email: staff.email, password: PASSWORD })
+    ).json();
+    expect((await me(accessToken)).statusCode).toBe(200);
+
+    await testDb().staff.update({ where: { id: staff.id }, data: { active: false } });
+    expect((await me(accessToken)).statusCode).toBe(401);
+  });
+
+  it("mustChangePassword ligado no banco bloqueia o token já emitido", async () => {
+    const { shop, staff } = await setup();
+    const { accessToken } = (
+      await login({ shopSlug: shop.slug, email: staff.email, password: PASSWORD })
+    ).json();
+    await testDb().staff.update({ where: { id: staff.id }, data: { mustChangePassword: true } });
+    const res = await me(accessToken);
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe("PASSWORD_CHANGE_REQUIRED");
+  });
+});
+
 describe("sessão encerrada não é tratada como roubo", () => {
   it("refresh com token de logout dá 401 sem derrubar a outra sessão", async () => {
     const { shop, staff } = await setup();
