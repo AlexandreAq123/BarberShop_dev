@@ -98,4 +98,32 @@ describe("hardening HTTP", () => {
     }
     expect(last).toBe(429);
   });
+
+  describe("com TRUST_PROXY=1", () => {
+    async function ipVia(remoteAddress: string) {
+      const proxied = await buildApp(testDeps({ health: healthyDb, env: { TRUST_PROXY: "1" } }));
+      app = proxied;
+      proxied.get("/ip", async (request) => ({ ip: request.ip }));
+      const res = await proxied.inject({
+        method: "GET",
+        url: "/ip",
+        remoteAddress,
+        headers: { "x-forwarded-for": "6.6.6.6, 203.0.113.7" }, // 1º forjado pelo cliente
+      });
+      return res.json<{ ip: string }>().ip;
+    }
+
+    // O Nginx pode chegar em qualquer formato de loopback, conforme a config dele e do Node.
+    // Se algum não for aceito, o IP vira o do proxy em silêncio e o rate limit fica global.
+    it.each(["127.0.0.1", "::1", "::ffff:127.0.0.1"])(
+      "peer loopback %s: IP vem do último salto de X-Forwarded-For",
+      async (peer) => {
+        expect(await ipVia(peer)).toBe("203.0.113.7");
+      },
+    );
+
+    it("peer não-loopback (acesso direto à API): X-Forwarded-For é ignorado", async () => {
+      expect(await ipVia("198.51.100.9")).toBe("198.51.100.9");
+    });
+  });
 });

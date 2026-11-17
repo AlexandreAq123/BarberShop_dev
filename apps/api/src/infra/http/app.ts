@@ -11,6 +11,20 @@ import { registerRoutes } from "../../app/routes.js";
 import { buildLoggerOptions } from "../logger.js";
 import { errorHandler, notFoundHandler } from "./errors.js";
 
+const isLoopback = (addr: string) =>
+  addr === "::1" || addr.startsWith("127.") || addr.startsWith("::ffff:127.");
+
+/**
+ * Converte TRUST_PROXY em função de confiança. O Fastify 5 ignora `trustProxy`
+ * numérico (contar saltos sem validar o peer permitiria forjar X-Forwarded-For
+ * conectando direto na API). Aqui o salto 0 — o Nginx — precisa ser loopback;
+ * os demais saltos até `hops` são confiados por contagem.
+ */
+export function trustProxyFn(hops: false | number) {
+  if (hops === false) return false;
+  return (addr: string, hop: number) => (hop === 0 ? isLoopback(addr) : hop < hops);
+}
+
 /**
  * Monta a aplicação sem chamar listen(): o mesmo app serve para o servidor
  * real e para os testes (app.inject).
@@ -19,7 +33,7 @@ export async function buildApp(deps: AppDeps) {
   const { env } = deps;
   const app = Fastify({
     logger: buildLoggerOptions(env),
-    trustProxy: env.TRUST_PROXY,
+    trustProxy: trustProxyFn(env.TRUST_PROXY),
     bodyLimit: 64 * 1024, // nenhum payload legítimo do sistema passa disso
     // Gera IDs de request para correlacionar logs sem expor dados do cliente.
     genReqId: () => crypto.randomUUID(),

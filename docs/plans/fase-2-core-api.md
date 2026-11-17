@@ -53,7 +53,7 @@ CI verde com MySQL.
 
 ---
 
-## [ ] 2.1 — Autenticação do staff
+## [x] 2.1 — Autenticação do staff
 
 Módulo `modules/auth`. **Pedir aprovação do plano antes de implementar.**
 
