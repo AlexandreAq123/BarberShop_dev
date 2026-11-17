@@ -16,6 +16,15 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const BLOCK_MAX_DAYS = 31;
 const BLOCK_LIST_MAX_DAYS = 92;
 const SLOT_STEPS = [5, 10, 15, 20, 30, 60] as const;
+
+/**
+ * Intervalo [início, fim) válido e de no máximo `maxDays`. O Zod 4 roda o refine do
+ * objeto mesmo quando um campo falhou: se alguma data não virou Date, o erro de campo
+ * já foi registrado e aqui não há o que checar (sem isso, `.getTime()` numa string ⇒ 500).
+ */
+const rangeOk = (start: unknown, end: unknown, maxDays: number) =>
+  !(start instanceof Date && end instanceof Date) ||
+  (start < end && end.getTime() - start.getTime() <= maxDays * DAY_MS);
 const TIMEZONES = new Set(Intl.supportedValuesOf("timeZone"));
 
 // --- Loja ---------------------------------------------------------------------------
@@ -82,20 +91,15 @@ const blockCreateBody = z
     endsAt: isoWithOffset,
     reason: z.string().trim().min(1).max(60).nullable().default(null),
   })
-  .refine((b) => b.startsAt < b.endsAt, {
-    message: "startsAt precisa ser antes de endsAt",
-    path: ["endsAt"],
-  })
-  .refine((b) => b.endsAt.getTime() - b.startsAt.getTime() <= BLOCK_MAX_DAYS * DAY_MS, {
-    message: `bloqueio de no máximo ${BLOCK_MAX_DAYS} dias`,
+  .refine((b) => rangeOk(b.startsAt, b.endsAt, BLOCK_MAX_DAYS), {
+    message: `endsAt precisa ser depois de startsAt, em no máximo ${BLOCK_MAX_DAYS} dias`,
     path: ["endsAt"],
   });
 
 const blockListQuery = pageQuery
   .extend({ from: isoWithOffset, to: isoWithOffset, staffId: z.uuid().optional() })
-  .refine((q) => q.from < q.to, { message: "from precisa ser antes de to", path: ["to"] })
-  .refine((q) => q.to.getTime() - q.from.getTime() <= BLOCK_LIST_MAX_DAYS * DAY_MS, {
-    message: `intervalo de no máximo ${BLOCK_LIST_MAX_DAYS} dias`,
+  .refine((q) => rangeOk(q.from, q.to, BLOCK_LIST_MAX_DAYS), {
+    message: `to precisa ser depois de from, em no máximo ${BLOCK_LIST_MAX_DAYS} dias`,
     path: ["to"],
   });
 
